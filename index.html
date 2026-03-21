@@ -1778,11 +1778,12 @@ footer {
               <label class="form-label">College / Institution *</label>
               <select class="form-select" name="college" id="custCollege" required>
                 <option value="">Select your college</option>
-                <option>SVVV Indore</option>
+
                 <option>Medicaps Indore</option>
                 <option>IPS Academy Indore</option>
                 <option>MIT Ujjain</option>
                 <option>Acropolis Indore</option>
+                  <option>SVVV Indore</option>
                 <option>SGSITS Indore</option>
                 <option>DAVV Indore</option>
                 <option>Vikram University Ujjain</option>
@@ -2193,7 +2194,9 @@ const products = [
   stockQty: 20,
   img: 'https://www.skynetrobotics.in/cdn/shop/files/arduno_line.png?v=1724013122&width=600',
   components: ['Chassis Frame', 'IR Sensors (2)', 'DC Motors (2)', 'Motor Driver L298N', 'Arduino Uno', 'Battery Holder', 'Wheels', 'Jumper Wires'],
-  offer: 'Order 3 at ₹2700 🔥'
+  offer: 'Order 3 at ₹2700 🔥',
+  offerQty: 3,
+  offerPrice: 2700
 },
 
 {
@@ -2415,6 +2418,19 @@ let selectedPayment = 'cod';
 let currentDetailProduct = null;
 let lastOrderId = '';
 
+// ─── OFFER PRICING HELPER ───
+// Returns the correct total for a cart item, honouring bundle offers.
+// e.g. Line Follower: 3 at ₹2700 means every complete group of 3 = ₹2700,
+// remaining singles are charged at normal unit price.
+function getEffectiveItemTotal(p, qty) {
+  if (p.offerQty && p.offerPrice && qty >= p.offerQty) {
+    const groups    = Math.floor(qty / p.offerQty);
+    const remainder = qty % p.offerQty;
+    return groups * p.offerPrice + remainder * p.price;
+  }
+  return p.price * qty;
+}
+
 // ─── FAQ TOGGLE ───
 function toggleFaq(el) {
   const isOpen = el.classList.contains('open');
@@ -2517,7 +2533,7 @@ function updateCartQty(id, qty) {
   if (qty < 1) { removeFromCart(id); return; }
   const item = cart.find(c => c.id === id);
   if (item) item.qty = qty;
-  renderCartSummary();
+  renderCart(); // re-renders list + summary so +/- buttons always have updated values
 }
 
 function updateCartBadge() {
@@ -2593,10 +2609,16 @@ function renderCartSummary() {
 
   const delivery = 50;
   const cod = selectedPayment === 'cod' ? 50 : 0;
-  const subtotal = cart.reduce((s, item) => {
+  let subtotal = 0;
+  let offerSavings = 0;
+  cart.forEach(item => {
     const p = products.find(x => x.id === item.id);
-    return s + (p ? p.price * item.qty : 0);
-  }, 0);
+    if (!p) return;
+    const normal    = p.price * item.qty;
+    const effective = getEffectiveItemTotal(p, item.qty);
+    subtotal   += effective;
+    offerSavings += (normal - effective);
+  });
   const total = subtotal + delivery + cod;
 
   el.innerHTML = `
@@ -2604,13 +2626,16 @@ function renderCartSummary() {
       ${cart.map(item => {
         const p = products.find(x => x.id === item.id);
         if (!p) return '';
+        const lineTotal = getEffectiveItemTotal(p, item.qty);
+        const offerActive = p.offerQty && p.offerPrice && item.qty >= p.offerQty;
         return `<div class="summary-line">
-          <span style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.name} ×${item.qty}<\/span>
-          <span>₹${(p.price * item.qty).toLocaleString('en-IN')}<\/span>
+          <span style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.name} ×${item.qty}${offerActive ? ' 🔥' : ''}<\/span>
+          <span>₹${lineTotal.toLocaleString('en-IN')}<\/span>
         <\/div>`;
       }).join('')}
     <\/div>
     <div class="summary-line"><span>Subtotal<\/span><span>₹${subtotal.toLocaleString('en-IN')}<\/span><\/div>
+    ${offerSavings > 0 ? `<div class="summary-line" style="color:var(--green)"><span>🎉 Offer Savings<\/span><span>−₹${offerSavings.toLocaleString('en-IN')}<\/span><\/div>` : ''}
     <div class="summary-line"><span>Delivery<\/span><span style="color:var(--amber)">₹${delivery}<\/span><\/div>
     ${cod ? `<div class="summary-line"><span>COD Handling<\/span><span style="color:var(--amber)">₹${cod}<\/span><\/div>` : ''}
     <div class="summary-line total"><span>Total<\/span><span>₹${total.toLocaleString('en-IN')}<\/span><\/div>`;
@@ -2638,14 +2663,15 @@ async function submitCartOrder(e) {
 
   const cartText = cart.map(item => {
     const p = products.find(x => x.id === item.id);
-    return `${p.name} x${item.qty} = ₹${(p.price * item.qty).toLocaleString('en-IN')}`;
+    const lineTotal = getEffectiveItemTotal(p, item.qty);
+    return `${p.name} x${item.qty} = ₹${lineTotal.toLocaleString('en-IN')}`;
   }).join('\n');
 
   const delivery = 50;
   const cod = selectedPayment === 'cod' ? 50 : 0;
   const subtotal = cart.reduce((s, item) => {
     const p = products.find(x => x.id === item.id);
-    return s + (p ? p.price * item.qty : 0);
+    return s + (p ? getEffectiveItemTotal(p, item.qty) : 0);
   }, 0);
   const total = subtotal + delivery + cod;
 
@@ -2707,7 +2733,7 @@ function generateInvoice() {
   const cod = selectedPayment === 'cod' ? 50 : 0;
   const subtotal = cart.reduce((s, item) => {
     const p = products.find(x => x.id === item.id);
-    return s + (p ? p.price * item.qty : 0);
+    return s + (p ? getEffectiveItemTotal(p, item.qty) : 0);
   }, 0);
   const total = subtotal + delivery + cod;
 
@@ -2717,12 +2743,17 @@ function generateInvoice() {
   const itemRows = cart.map((item, i) => {
     const p = products.find(x => x.id === item.id);
     if (!p) return '';
+    const lineTotal   = getEffectiveItemTotal(p, item.qty);
+    const offerActive = p.offerQty && p.offerPrice && item.qty >= p.offerQty;
+    const unitDisplay = offerActive
+      ? `₹${p.price.toLocaleString('en-IN')} <span style="color:#e65100;font-size:11px;">(offer)</span>`
+      : `₹${p.price.toLocaleString('en-IN')}`;
     return `<tr>
       <td style="padding:10px 12px;border-bottom:1px solid #e8eaf0;font-size:13px;">${i + 1}<\/td>
-      <td style="padding:10px 12px;border-bottom:1px solid #e8eaf0;font-size:13px;font-weight:500;">${p.name}<\/td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e8eaf0;font-size:13px;font-weight:500;">${p.name}${offerActive ? ' <span style="background:#fff3cd;color:#e65100;font-size:10px;padding:1px 6px;border-radius:10px;font-weight:700;">OFFER</span>' : ''}<\/td>
       <td style="padding:10px 12px;border-bottom:1px solid #e8eaf0;font-size:13px;text-align:center;">${item.qty}<\/td>
-      <td style="padding:10px 12px;border-bottom:1px solid #e8eaf0;font-size:13px;text-align:right;">₹${p.price.toLocaleString('en-IN')}<\/td>
-      <td style="padding:10px 12px;border-bottom:1px solid #e8eaf0;font-size:13px;text-align:right;font-weight:600;">₹${(p.price * item.qty).toLocaleString('en-IN')}<\/td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e8eaf0;font-size:13px;text-align:right;">${unitDisplay}<\/td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e8eaf0;font-size:13px;text-align:right;font-weight:600;">₹${lineTotal.toLocaleString('en-IN')}<\/td>
     <\/tr>`;
   }).join('');
 
@@ -2949,17 +2980,58 @@ function whatsappProductId(id) {
 
 function whatsappCartOrder() {
   if (cart.length === 0) { showToast('Your cart is empty!', 'error'); return; }
-  const name = document.getElementById('custName')?.value || '[Name]';
-  const phone = document.getElementById('custPhone')?.value || '[Phone]';
-  const cartText = cart.map(item => {
+
+  // Collect all form fields
+  const name    = document.getElementById('custName')?.value?.trim()    || '[Name]';
+  const phone   = document.getElementById('custPhone')?.value?.trim()   || '[Phone]';
+  const email   = document.getElementById('custEmail')?.value?.trim()   || '[Email]';
+  const college = document.getElementById('custCollege')?.value?.trim() || '[College]';
+  const address = document.getElementById('custAddress')?.value?.trim() || '[Address]';
+  const payLabel = selectedPayment === 'cod' ? 'Cash on Delivery' : 'UPI Payment';
+
+  // Generate / reuse order ID
+  const orderId = lastOrderId || ('CK' + Date.now().toString().slice(-6));
+  if (!lastOrderId) lastOrderId = orderId;
+
+  // Build cart lines (offer-aware)
+  const cartLines = cart.map(item => {
     const p = products.find(x => x.id === item.id);
-    return `📦 ${p.name} x${item.qty} = ₹${(p.price * item.qty).toLocaleString('en-IN')}`;
+    const lineTotal = getEffectiveItemTotal(p, item.qty);
+    return `  📦 ${p.name} × ${item.qty} = ₹${lineTotal.toLocaleString('en-IN')}`;
   }).join('\n');
-  const total = cart.reduce((s, item) => {
+
+  const delivery = 50;
+  const cod      = selectedPayment === 'cod' ? 50 : 0;
+  const subtotal = cart.reduce((s, item) => {
     const p = products.find(x => x.id === item.id);
-    return s + (p ? p.price * item.qty : 0);
-  }, 0) + 50 + (selectedPayment === 'cod' ? 50 : 0);
-  const msg = encodeURIComponent(`Hi CircuitKart! I'd like to place an order:\n\n${cartText}\n\n💰 Total: ₹${total.toLocaleString('en-IN')}\n👤 Name: ${name}\n📞 Phone: ${phone}\n\nPlease confirm my order!`);
+    return s + (p ? getEffectiveItemTotal(p, item.qty) : 0);
+  }, 0);
+  const total = subtotal + delivery + cod;
+
+  const msg = encodeURIComponent(
+`🛒 *New Order — CircuitKart*
+━━━━━━━━━━━━━━━━━━
+🔖 Order ID : ${orderId}
+
+👤 *Customer Details*
+  Name    : ${name}
+  Phone   : ${phone}
+  Email   : ${email}
+  College : ${college}
+  Address : ${address}
+
+🛍️ *Items Ordered*
+${cartLines}
+
+💳 *Payment Summary*
+  Subtotal        : ₹${subtotal.toLocaleString('en-IN')}
+  Delivery Charge : ₹${delivery}${cod ? `\n  COD Handling    : ₹${cod}` : ''}
+  *TOTAL PAYABLE  : ₹${total.toLocaleString('en-IN')}*
+
+💰 Payment Method : ${payLabel}
+
+Please confirm my order! 🙏`
+  );
   window.open(`https://wa.me/${WHATSAPP}?text=${msg}`, '_blank');
 }
 
